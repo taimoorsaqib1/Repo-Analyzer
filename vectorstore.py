@@ -11,6 +11,28 @@ import config
 from embeddings import get_embeddings
 
 
+def clear_vectorstore() -> None:
+    """
+    Delete the existing ChromaDB collection via API (avoids file-lock issues).
+    Falls back to deleting the directory if the API call fails.
+    """
+    import shutil
+    import chromadb
+
+    persist_dir = Path(config.CHROMA_PERSIST_DIR).resolve()
+    if not persist_dir.exists():
+        return
+
+    try:
+        client = chromadb.PersistentClient(path=str(persist_dir))
+        collections = [c.name for c in client.list_collections()]
+        if config.CHROMA_COLLECTION in collections:
+            client.delete_collection(config.CHROMA_COLLECTION)
+    except Exception:
+        # If API deletion fails, fall back to wiping the directory
+        shutil.rmtree(persist_dir, ignore_errors=True)
+
+
 def create_vectorstore(documents: list[Document]) -> Chroma:
     """
     Create a new ChromaDB collection from documents and persist it.

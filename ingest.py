@@ -18,7 +18,7 @@ from rich.panel import Panel
 import config
 from loader import load_from_directory, load_from_git
 from chunker import chunk_documents
-from vectorstore import create_vectorstore
+from vectorstore import create_vectorstore, clear_vectorstore
 
 console = Console()
 
@@ -48,8 +48,11 @@ def ingest_local(repo_path: str, force: bool = False):
         if response.lower() != "y":
             console.print("[green]✓ Using existing index.[/]")
             return
-        shutil.rmtree(persist_dir)
+        clear_vectorstore()
         console.print("[dim]Cleared old index.[/]\n")
+    elif persist_dir.exists() and force:
+        clear_vectorstore()
+        console.print("[dim]Cleared old index (--force).[/]\n")
 
     with Progress(
         SpinnerColumn(),
@@ -139,6 +142,23 @@ def main():
             return
         url = args[1]
         branch = args[3] if len(args) > 3 and args[2] == "--branch" else "main"
+
+        # Always wipe the old vector store so only the new repo is indexed
+        persist_dir = Path(config.CHROMA_PERSIST_DIR).resolve()
+        if persist_dir.exists() and not force:
+            console.print(
+                f"\n[yellow]⚠ Vector store already exists at {persist_dir}[/]"
+            )
+            response = console.input("[bold]Clear old index and re-index new repo? [Y/n]: [/]")
+            if response.lower() == "n":
+                console.print("[green]✓ Keeping existing index.[/]")
+                return
+            clear_vectorstore()
+            console.print("[dim]Cleared old index.[/]\n")
+        elif persist_dir.exists() and force:
+            clear_vectorstore()
+            console.print("[dim]Cleared old index (--force).[/]\n")
+
         console.print(f"[cyan]Cloning {url} (branch: {branch})...[/]")
         documents = load_from_git(url, branch)
         chunks = chunk_documents(documents)
