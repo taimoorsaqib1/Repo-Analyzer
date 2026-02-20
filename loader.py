@@ -4,6 +4,8 @@ into LangChain Document objects with rich metadata.
 """
 
 import os
+import stat
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +13,12 @@ from langchain_core.documents import Document
 from git import Repo as GitRepo
 
 import config
+
+
+def _force_remove_readonly(func, path, _):
+    """Error handler for shutil.rmtree — clears read-only flag then retries (needed for .git on Windows)."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 
 def _should_include(filepath: Path) -> bool:
@@ -124,9 +132,22 @@ def load_from_git(
     clone_path = Path(clone_to).resolve()
 
     if clone_path.exists():
-        # Pull latest if already cloned
-        repo = GitRepo(clone_path)
-        repo.remotes.origin.pull()
+        # Check if the existing clone is the same repo
+        try:
+            existing_repo = GitRepo(clone_path)
+            existing_url = existing_repo.remotes.origin.url.rstrip("/").rstrip(".git")
+            new_url = clone_url.rstrip("/").rstrip(".git")
+            same_repo = existing_url == new_url
+        except Exception:
+            same_repo = False
+
+        if same_repo:
+            # Same repo — just pull latest
+            existing_repo.remotes.origin.pull()
+        else:
+            # Different repo — wipe and re-clone
+            shutil.rmtree(clone_path, onerror=_force_remove_readonly)
+            GitRepo.clone_from(clone_url, clone_path, branch=branch)
     else:
         GitRepo.clone_from(clone_url, clone_path, branch=branch)
 
