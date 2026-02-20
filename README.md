@@ -101,7 +101,7 @@ Copy `.env.example` to `.env` and fill in the values:
 ### Using Ollama (local, free)
 
 1. Install [Ollama](https://ollama.com)
-2. Pull a coding model: `ollama pull deepseek-coder`
+2. Pull a coding model: `ollama pull qwen2.5-coder:1.5b`
 3. Pull an embedding model: `ollama pull nomic-embed-text`
 4. Set `PROVIDER=ollama` in `.env`
 
