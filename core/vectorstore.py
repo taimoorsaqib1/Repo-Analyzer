@@ -7,15 +7,12 @@ from pathlib import Path
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
 
-import config
-from embeddings import get_embeddings
+from . import config
+from .embeddings import get_embeddings
 
 
 def clear_vectorstore() -> None:
-    """
-    Delete the existing ChromaDB collection via API (avoids file-lock issues).
-    Falls back to deleting the directory if the API call fails.
-    """
+    """Delete the existing ChromaDB collection."""
     import shutil
     import chromadb
 
@@ -29,20 +26,11 @@ def clear_vectorstore() -> None:
         if config.CHROMA_COLLECTION in collections:
             client.delete_collection(config.CHROMA_COLLECTION)
     except Exception:
-        # If API deletion fails, fall back to wiping the directory
         shutil.rmtree(persist_dir, ignore_errors=True)
 
 
 def create_vectorstore(documents: list[Document]) -> Chroma:
-    """
-    Create a new ChromaDB collection from documents and persist it.
-
-    Args:
-        documents: Chunked Documents to embed and store.
-
-    Returns:
-        A Chroma vector store instance.
-    """
+    """Create a new ChromaDB collection from documents and persist it."""
     persist_dir = Path(config.CHROMA_PERSIST_DIR).resolve()
     persist_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,29 +47,19 @@ def create_vectorstore(documents: list[Document]) -> Chroma:
 
 
 def load_vectorstore() -> Chroma:
-    """
-    Load an existing persisted ChromaDB collection.
-
-    Returns:
-        A Chroma vector store instance.
-
-    Raises:
-        FileNotFoundError: If the persist directory doesn't exist.
-    """
+    """Load an existing persisted ChromaDB collection."""
     persist_dir = Path(config.CHROMA_PERSIST_DIR).resolve()
 
     if not persist_dir.exists():
         raise FileNotFoundError(
             f"No vector store found at {persist_dir}. "
-            "Run `python ingest.py <repo_path>` first to index a repository."
+            "Index a repository first."
         )
 
     embedding_fn = get_embeddings()
 
-    vectorstore = Chroma(
+    return Chroma(
         collection_name=config.CHROMA_COLLECTION,
         embedding_function=embedding_fn,
         persist_directory=str(persist_dir),
     )
-
-    return vectorstore

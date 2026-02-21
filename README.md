@@ -1,37 +1,51 @@
 # Repo Analyzer — AI Coding Assistant
 
-An AI-powered coding assistant that lets you **chat with any GitHub repository** using Retrieval-Augmented Generation (RAG). Point it at a local folder or a Git URL, and it indexes every source file into a vector database so you can ask natural-language questions about the codebase.
+An AI-powered coding assistant that lets you **chat with any GitHub repository** using Retrieval-Augmented Generation (RAG). Add one or more repo URLs and it clones, indexes, and analyses them — then lets you ask natural-language questions through a **web UI** or a **terminal CLI**.
 
 ---
 
 ## Features
 
-- **Clone or load** any Git repository automatically
-- **Indexes** source files into a ChromaDB vector store (persistent)
-- **Interactive CLI** — chat in your terminal with a rich UI
-- **Dual provider support** — use **OpenAI** (GPT-4, etc.) or a **local Ollama** model
+- **Multi-repo support** — analyze several repositories in a single session
+- **Web App** — modern dark UI with repo overview cards and streaming chat
+- **Auto-generated repo summaries** — purpose, features, use cases, tech stack, architecture, entry points, getting started, and limitations
+- **Interactive CLI** — full-featured terminal chat with rich formatting
+- **Dual provider** — use **OpenAI** or a **local Ollama** model (fully offline)
+- **Language-aware chunking** — code split at function/class boundaries
+- **Real-time streaming** — tokens stream in the web app and CLI
+- **Session cleanup** — ChromaDB and cloned repos wiped automatically on exit
 - Supports 25+ file types: Python, JS/TS, Go, Rust, Java, C/C++, HTML, CSS, SQL, and more
-- Conversation memory — retains context across multi-turn questions
-- Shows source file references for every answer
+- Conversation memory across multi-turn questions
+- Source file references shown for every answer
 
 ---
 
 ## Project Structure
 
 ```
-.
-├── assistant.py      # RAG chain — retriever + LLM + prompt
-├── chunker.py        # Splits source files into overlapping chunks
-├── cli.py            # Interactive terminal UI (rich)
-├── config.py         # Centralized config (reads .env)
-├── embeddings.py     # Embedding model factory (OpenAI / Ollama)
-├── ingest.py         # Indexes a repo into ChromaDB
-├── llm.py            # LLM factory (OpenAI / Ollama)
-├── loader.py         # File loader + Git clone helper
-├── retriever.py      # ChromaDB retriever wrapper
-├── vectorstore.py    # ChromaDB create / load helpers
-├── requirements.txt  # Python dependencies
-└── .env.example      # Environment variable template
+Repo-Analyzer/
+├── core/                   # All RAG logic (importable package)
+│   ├── assistant.py        # RAG chain — retriever + LLM + prompt + streaming
+│   ├── chunker.py          # Language-aware code splitter
+│   ├── config.py           # Centralized config (reads .env)
+│   ├── embeddings.py       # Embedding model factory (OpenAI / Ollama)
+│   ├── llm.py              # LLM factory (OpenAI / Ollama)
+│   ├── loader.py           # File loader + multi-repo Git clone helper
+│   ├── retriever.py        # ChromaDB MMR retriever
+│   └── vectorstore.py      # ChromaDB create / load / clear helpers
+├── web/                    # Web application
+│   ├── server.py           # FastAPI backend with SSE streaming
+│   └── static/
+│       ├── index.html      # Single-page app
+│       ├── style.css       # Dark theme UI
+│       └── app.js          # Frontend logic (no framework)
+├── data/                   # Runtime data (auto-created, auto-deleted)
+│   ├── chroma_db/          # Vector database
+│   └── repo_clone/         # Cloned repos, one folder per repo
+├── cli.py                  # Terminal chat interface
+├── ingest.py               # Ingestion CLI (local paths or Git URLs)
+├── requirements.txt
+└── .env                    # Your config
 ```
 
 ---
@@ -53,36 +67,75 @@ pip install -r requirements.txt
 
 ### 3. Configure environment
 
-```bash
-cp .env.example .env
+Create a `.env` file in the project root:
+
+```env
+PROVIDER=ollama
+OLLAMA_LLM_MODEL=qwen2.5-coder:7b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
-Edit `.env` and set your provider and API keys (see [Configuration](#configuration)).
+---
 
-### 4. Index a repository
+## Option A — Web App (Recommended)
 
-**Local folder:**
 ```bash
-python ingest.py /path/to/your/project
+python web/server.py
 ```
 
-**Remote Git URL:**
+Open **http://localhost:8000** in your browser.
+
+1. Paste one or more GitHub repo URLs in the sidebar
+2. Set the branch (default: `main`) and click **Analyze Repos**
+3. The app clones, indexes, and generates rich overview cards:
+   - 🎯 Purpose · ✨ Key Features · 💡 Use Cases
+   - 🛠 Tech Stack · 🔗 External Dependencies · 📊 Languages
+   - 🏗 Architecture · 🚪 Entry Points · 🚀 Getting Started · ⚠ Limitations
+4. Switch to the **Chat** tab to ask questions in real time
+5. Click **Clear Session** — everything is wiped automatically
+
+---
+
+## Option B — Terminal CLI
+
+### Index repositories
+
 ```bash
-python ingest.py --git https://github.com/owner/repo.git
-python ingest.py --git https://github.com/owner/repo.git --branch dev
+# Single remote repo
+python ingest.py --git https://github.com/owner/repo
+
+# Multiple remote repos
+python ingest.py --git https://github.com/user/repo1 https://github.com/user/repo2
+
+# Specific branch
+python ingest.py --git https://github.com/owner/repo --branch develop
+
+# Local folders
+python ingest.py /path/to/repo1 /path/to/repo2
+
+# Force re-index
+python ingest.py --git https://github.com/owner/repo --force
 ```
 
-### 5. Chat with the codebase
+### Chat
 
 ```bash
 python cli.py
 ```
 
+#### CLI Commands
+
+| Command | Description |
+|---|---|
+| `/help` | Show available commands |
+| `/clear` | Clear conversation history |
+| `/sources` | Show source files from the last answer |
+| `/config` | Show current configuration |
+| `/quit` | Exit and clean up session data |
+
 ---
 
 ## Configuration
-
-Copy `.env.example` to `.env` and fill in the values:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -92,35 +145,26 @@ Copy `.env.example` to `.env` and fill in the values:
 | `OPENAI_LLM_MODEL` | `gpt-4` | OpenAI chat model |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model |
-| `OLLAMA_LLM_MODEL` | `deepseek-coder` | Ollama chat model |
-| `CHROMA_PERSIST_DIR` | `./chroma_db` | Where ChromaDB data is stored |
-| `CHROMA_COLLECTION` | `codebase` | ChromaDB collection name |
-| `CHUNK_SIZE` | `1500` | Token size per chunk |
+| `OLLAMA_LLM_MODEL` | `qwen2.5-coder:7b` | Ollama chat model |
+| `CHROMA_PERSIST_DIR` | `./data/chroma_db` | Vector database location |
+| `REPO_CLONE_DIR` | `./data/repo_clone` | Cloned repos location |
+| `CHUNK_SIZE` | `1500` | Tokens per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks |
+| `RETRIEVER_K` | `6` | Chunks retrieved per query |
 
-### Using Ollama (local, free)
+### Using Ollama (local, free, offline)
 
-1. Install [Ollama](https://ollama.com)
-2. Pull a coding model: `ollama pull qwen2.5-coder:1.5b`
-3. Pull an embedding model: `ollama pull nomic-embed-text`
-4. Set `PROVIDER=ollama` in `.env`
+```bash
+# Install Ollama from https://ollama.com, then:
+ollama pull qwen2.5-coder:7b   # LLM (recommended for 6GB+ VRAM)
+ollama pull nomic-embed-text   # Embeddings
+```
+
+Set `PROVIDER=ollama` in `.env`.
 
 ### Using OpenAI
 
-1. Set `PROVIDER=openai` in `.env`
-2. Set your `OPENAI_API_KEY`
-
----
-
-## CLI Commands
-
-| Command | Description |
-|---|---|
-| `/help` | Show available commands |
-| `/clear` | Clear conversation history |
-| `/sources` | Show source files from the last answer |
-| `/config` | Show current configuration |
-| `/quit` | Exit the assistant |
+Set `PROVIDER=openai` and `OPENAI_API_KEY=sk-...` in `.env`.
 
 ---
 

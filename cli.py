@@ -6,28 +6,24 @@ Usage:
 """
 
 import sys
+import shutil
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.theme import Theme
 
-import config
+from core import config
 
 
-# Custom theme for the CLI
 theme = Theme({
-    "info": "cyan",
-    "success": "green",
-    "warning": "yellow",
-    "error": "red bold",
-    "user": "bold white",
-    "assistant": "bright_white",
-    "source": "dim cyan",
+    "info": "cyan", "success": "green", "warning": "yellow",
+    "error": "red bold", "user": "bold white",
+    "assistant": "bright_white", "source": "dim cyan",
 })
 
 console = Console(theme=theme)
-
 
 BANNER = r"""
    ____          _         _            _     _              _
@@ -47,6 +43,19 @@ HELP_TEXT = """
 """
 
 
+def cleanup_session():
+    console.print("\n[dim]Cleaning up session data...[/]")
+    for path_str in (config.CHROMA_PERSIST_DIR, config.REPO_CLONE_DIR):
+        p = Path(path_str)
+        if p.exists():
+            try:
+                shutil.rmtree(p)
+                console.print(f"  [green]✓[/] Removed {p}")
+            except Exception as e:
+                console.print(f"  [yellow]⚠[/] Could not remove {p}: {e}")
+    console.print("[dim]Session cleanup complete.[/]")
+
+
 def show_banner():
     provider_info = (
         f"{config.PROVIDER.upper()} — "
@@ -57,8 +66,7 @@ def show_banner():
             f"[bold cyan]{BANNER}[/]\n"
             f"  [dim]Provider: {provider_info}[/]\n"
             f"  [dim]Type /help for commands, /quit to exit[/]",
-            border_style="cyan",
-            padding=(0, 2),
+            border_style="cyan", padding=(0, 2),
         )
     )
 
@@ -66,15 +74,11 @@ def show_banner():
 def main():
     show_banner()
 
-    # Lazy import so startup is fast and errors are clear
     try:
-        from assistant import CodingAssistant
+        from core.assistant import CodingAssistant
     except Exception as e:
         console.print(f"[error]Failed to initialize assistant: {e}[/]")
-        console.print(
-            "[warning]Make sure you've indexed a repo first: "
-            "python ingest.py <repo_path>[/]"
-        )
+        console.print("[warning]Index a repo first: python ingest.py --git <url>[/]")
         return
 
     try:
@@ -83,7 +87,8 @@ def main():
         console.print(f"[error]{e}[/]")
         console.print(
             "\n[warning]Index a repository first:[/]\n"
-            "  python ingest.py <path_to_your_repo>\n"
+            "  python ingest.py --git <url>\n"
+            "  python ingest.py --git <url1> <url2> ...\n"
         )
         return
     except Exception as e:
@@ -91,35 +96,33 @@ def main():
         return
 
     last_sources = []
-
     console.print("\n[success]✓ Assistant ready! Ask me anything about your code.[/]\n")
 
     while True:
         try:
             question = console.input("[bold cyan]You ❯ [/]").strip()
         except (KeyboardInterrupt, EOFError):
+            cleanup_session()
             console.print("\n[dim]Goodbye! 👋[/]")
             break
 
         if not question:
             continue
 
-        # Handle commands
         if question.startswith("/"):
             cmd = question.lower().split()[0]
 
-            if cmd == "/quit" or cmd == "/exit" or cmd == "/q":
+            if cmd in ("/quit", "/exit", "/q"):
+                cleanup_session()
                 console.print("[dim]Goodbye! 👋[/]")
                 break
 
-            elif cmd == "/help" or cmd == "/h":
+            elif cmd in ("/help", "/h"):
                 console.print(HELP_TEXT)
-                continue
 
             elif cmd == "/clear":
                 assistant.clear_history()
                 console.print("[success]✓ Conversation history cleared.[/]\n")
-                continue
 
             elif cmd == "/sources":
                 if last_sources:
@@ -129,28 +132,24 @@ def main():
                     console.print()
                 else:
                     console.print("[warning]No sources yet — ask a question first.[/]\n")
-                continue
 
             elif cmd == "/config":
                 console.print(
                     Panel(
-                        f"Provider: {config.PROVIDER}\n"
-                        f"LLM Model: {config.OLLAMA_LLM_MODEL if config.PROVIDER == 'ollama' else config.OPENAI_LLM_MODEL}\n"
-                        f"Embed Model: {config.OLLAMA_EMBED_MODEL if config.PROVIDER == 'ollama' else config.OPENAI_EMBED_MODEL}\n"
+                        f"Provider:     {config.PROVIDER}\n"
+                        f"LLM Model:    {config.OLLAMA_LLM_MODEL if config.PROVIDER == 'ollama' else config.OPENAI_LLM_MODEL}\n"
+                        f"Embed Model:  {config.OLLAMA_EMBED_MODEL if config.PROVIDER == 'ollama' else config.OPENAI_EMBED_MODEL}\n"
                         f"Vector Store: {config.CHROMA_PERSIST_DIR}\n"
-                        f"Retriever K: {config.RETRIEVER_K}\n"
-                        f"Chunk Size: {config.CHUNK_SIZE}",
-                        title="⚙️  Configuration",
-                        border_style="cyan",
+                        f"Repos Dir:    {config.REPO_CLONE_DIR}\n"
+                        f"Retriever K:  {config.RETRIEVER_K}\n"
+                        f"Chunk Size:   {config.CHUNK_SIZE}",
+                        title="⚙️  Configuration", border_style="cyan",
                     )
                 )
-                continue
-
             else:
                 console.print(f"[warning]Unknown command: {cmd}. Type /help[/]\n")
-                continue
+            continue
 
-        # Ask the assistant
         console.print()
         with console.status("[cyan]Thinking...[/]", spinner="dots"):
             try:
@@ -160,7 +159,6 @@ def main():
                 console.print(f"[error]Error: {e}[/]\n")
                 continue
 
-        # Display the answer
         console.print(
             Panel(
                 Markdown(answer),
@@ -170,7 +168,6 @@ def main():
             )
         )
 
-        # Show source references
         if last_sources:
             source_text = " │ ".join(last_sources[:4])
             if len(last_sources) > 4:

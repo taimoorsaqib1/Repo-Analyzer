@@ -4,8 +4,7 @@ based on the configured provider (OpenAI or Ollama).
 """
 
 from langchain_core.language_models import BaseChatModel
-
-import config
+from . import config
 
 
 def get_llm() -> BaseChatModel:

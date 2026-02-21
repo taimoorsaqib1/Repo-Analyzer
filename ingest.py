@@ -1,34 +1,35 @@
 """
-Ingestion script — indexes a repository into the ChromaDB vector store.
+Ingestion script — indexes one or more repositories into ChromaDB.
 
 Usage:
-    python ingest.py <repo_path>
-    python ingest.py --git <clone_url> [--branch main]
+    python ingest.py <repo_path1> [<repo_path2> ...]
+    python ingest.py --git <url1> [<url2> ...] [--branch main]
+    python ingest.py <repo_path> --force
 """
 
 import sys
 import time
-import shutil
 from pathlib import Path
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.panel import Panel
 
-import config
-from loader import load_from_directory, load_from_git
-from chunker import chunk_documents
-from vectorstore import create_vectorstore, clear_vectorstore
+from core import config
+from core.loader import load_from_directory, load_from_multiple_git
+from core.chunker import chunk_documents
+from core.vectorstore import create_vectorstore, clear_vectorstore
 
 console = Console()
 
 
-def ingest_local(repo_path: str, force: bool = False):
-    """Index a local repository into the vector store."""
+def ingest_local(repo_paths: list[str], force: bool = False):
+    """Index one or more local repositories into the vector store."""
+    repo_list = "\n".join(f"  • {p}" for p in repo_paths)
 
     console.print(
         Panel(
-            f"[bold cyan]Indexing:[/] {repo_path}\n"
+            f"[bold cyan]Indexing:[/]\n{repo_list}\n\n"
             f"[bold cyan]Provider:[/] {config.PROVIDER}\n"
             f"[bold cyan]Embed Model:[/] "
             f"{config.OLLAMA_EMBED_MODEL if config.PROVIDER == 'ollama' else config.OPENAI_EMBED_MODEL}",
@@ -37,19 +38,14 @@ def ingest_local(repo_path: str, force: bool = False):
         )
     )
 
-    # Check for existing vector store
     persist_dir = Path(config.CHROMA_PERSIST_DIR).resolve()
     if persist_dir.exists() and not force:
-        console.print(
-            f"\n[yellow]⚠ Vector store already exists at {persist_dir}[/]"
-        )
-        console.print("[yellow]  Use --force to re-index, or just run cli.py[/]\n")
+        console.print(f"\n[yellow]⚠ Vector store already exists at {persist_dir}[/]")
         response = console.input("[bold]Re-index? [y/N]: [/]")
         if response.lower() != "y":
             console.print("[green]✓ Using existing index.[/]")
             return
         clear_vectorstore()
-        console.print("[dim]Cleared old index.[/]\n")
     elif persist_dir.exists() and force:
         clear_vectorstore()
         console.print("[dim]Cleared old index (--force).[/]\n")
@@ -62,57 +58,51 @@ def ingest_local(repo_path: str, force: bool = False):
         console=console,
     ) as progress:
 
-        # Step 1: Load files
         task = progress.add_task("📂 Loading repository files...", total=3)
         start = time.time()
-        documents = load_from_directory(repo_path)
+
+        all_documents = []
+        for repo_path in repo_paths:
+            docs = load_from_directory(repo_path)
+            repo_name = Path(repo_path).name
+            for doc in docs:
+                doc.metadata["repository"] = repo_name
+            all_documents.extend(docs)
+
         progress.update(task, advance=1)
         console.print(
-            f"   [green]✓[/] Loaded [bold]{len(documents)}[/] files "
-            f"in {time.time() - start:.1f}s"
+            f"   [green]✓[/] Loaded [bold]{len(all_documents)}[/] files "
+            f"from {len(repo_paths)} repo(s) in {time.time() - start:.1f}s"
         )
 
-        # Step 2: Chunk
         progress.update(task, description="✂️  Chunking code...")
         start = time.time()
-        chunks = chunk_documents(documents)
+        chunks = chunk_documents(all_documents)
         progress.update(task, advance=1)
-        console.print(
-            f"   [green]✓[/] Created [bold]{len(chunks)}[/] chunks "
-            f"in {time.time() - start:.1f}s"
-        )
+        console.print(f"   [green]✓[/] Created [bold]{len(chunks)}[/] chunks in {time.time() - start:.1f}s")
 
-        # Step 3: Embed & store
         progress.update(task, description="🔢 Embedding & storing...")
         start = time.time()
         create_vectorstore(chunks)
         progress.update(task, advance=1)
-        console.print(
-            f"   [green]✓[/] Embedded and stored "
-            f"in {time.time() - start:.1f}s"
-        )
+        console.print(f"   [green]✓[/] Embedded and stored in {time.time() - start:.1f}s")
 
-    # Summary
-    languages = {}
-    for doc in documents:
+    languages: dict[str, int] = {}
+    for doc in all_documents:
         lang = doc.metadata.get("language", "unknown")
         languages[lang] = languages.get(lang, 0) + 1
 
     lang_summary = ", ".join(
-        f"{lang}: {count}" for lang, count in sorted(
-            languages.items(), key=lambda x: -x[1]
-        )[:8]
+        f"{lang}: {cnt}" for lang, cnt in sorted(languages.items(), key=lambda x: -x[1])[:8]
     )
-
     console.print(
         Panel(
             f"[bold green]✓ Indexing complete![/]\n\n"
-            f"  Files: {len(documents)}\n"
-            f"  Chunks: {len(chunks)}\n"
+            f"  Files:     {len(all_documents)}\n"
+            f"  Chunks:    {len(chunks)}\n"
             f"  Languages: {lang_summary}\n"
             f"  Stored at: {config.CHROMA_PERSIST_DIR}",
-            title="📊 Summary",
-            border_style="green",
+            title="📊 Summary", border_style="green",
         )
     )
 
@@ -124,9 +114,10 @@ def main():
         console.print(
             Panel(
                 "[bold]Usage:[/]\n"
-                "  python ingest.py <repo_path>          Index a local repository\n"
-                "  python ingest.py --git <url>           Clone & index a git repo\n"
-                "  python ingest.py <repo_path> --force   Force re-index\n",
+                "  python ingest.py <path1> [<path2> ...]        Index local repo(s)\n"
+                "  python ingest.py --git <url1> [<url2> ...]    Clone & index git repo(s)\n"
+                "  python ingest.py <path> --force               Force re-index\n"
+                "  python ingest.py --git <url> --branch <name>  Specify branch\n",
                 title="🧠 Code Assistant — Ingestion",
                 border_style="cyan",
             )
@@ -134,42 +125,46 @@ def main():
         return
 
     force = "--force" in args
-    args = [a for a in args if a != "--force"]
+    args  = [a for a in args if a != "--force"]
 
     if args[0] == "--git":
-        if len(args) < 2:
-            console.print("[red]Error: --git requires a URL[/]")
-            return
-        url = args[1]
-        branch = args[3] if len(args) > 3 and args[2] == "--branch" else "main"
+        branch = "main"
+        if "--branch" in args:
+            idx    = args.index("--branch")
+            branch = args[idx + 1] if idx + 1 < len(args) else "main"
+            args   = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
 
-        # Always wipe the old vector store so only the new repo is indexed
+        urls = [a for a in args[1:] if a and not a.startswith("--")]
+        if not urls:
+            console.print("[red]Error: --git requires at least one URL[/]")
+            return
+
         persist_dir = Path(config.CHROMA_PERSIST_DIR).resolve()
         if persist_dir.exists() and not force:
-            console.print(
-                f"\n[yellow]⚠ Vector store already exists at {persist_dir}[/]"
-            )
-            response = console.input("[bold]Clear old index and re-index new repo? [Y/n]: [/]")
-            if response.lower() == "n":
+            resp = console.input("\n[yellow]⚠ Vector store exists.[/] Clear and re-index? [Y/n]: ")
+            if resp.lower() == "n":
                 console.print("[green]✓ Keeping existing index.[/]")
                 return
             clear_vectorstore()
-            console.print("[dim]Cleared old index.[/]\n")
         elif persist_dir.exists() and force:
             clear_vectorstore()
-            console.print("[dim]Cleared old index (--force).[/]\n")
 
-        console.print(f"[cyan]Cloning {url} (branch: {branch})...[/]")
-        documents = load_from_git(url, branch)
+        console.print(f"[cyan]Cloning {len(urls)} repo(s) on branch '{branch}'...[/]\n")
+        documents = load_from_multiple_git(urls, branch)
+        console.print(f"[green]✓ Loaded {len(documents)} files[/]")
         chunks = chunk_documents(documents)
+        console.print(f"[green]✓ Created {len(chunks)} chunks[/]")
         create_vectorstore(chunks)
-        console.print("[green]✓ Done![/]")
+        console.print(f"[bold green]✓ Done! Stored in {config.CHROMA_PERSIST_DIR}[/]")
+
     else:
-        repo_path = args[0]
-        if not Path(repo_path).is_dir():
-            console.print(f"[red]Error: '{repo_path}' is not a directory[/]")
+        repo_paths = [a for a in args if Path(a).is_dir()]
+        for inv in [a for a in args if not Path(a).is_dir()]:
+            console.print(f"[yellow]Warning: skipping '{inv}' — not a directory[/]")
+        if not repo_paths:
+            console.print("[red]Error: no valid directories provided[/]")
             return
-        ingest_local(repo_path, force=force)
+        ingest_local(repo_paths, force=force)
 
 
 if __name__ == "__main__":

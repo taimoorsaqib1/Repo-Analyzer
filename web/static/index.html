@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Code Assistant</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ── Sidebar ─────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="logo">
+        <span class="logo-icon">🧠</span>
+        <div>
+          <h1>Code Assistant</h1>
+          <p class="logo-sub">Multi-Repo RAG</p>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <label class="section-label">REPOSITORIES</label>
+        <div id="urlList" class="url-list"></div>
+        <button class="btn-ghost" id="addUrlBtn">＋ Add URL</button>
+
+        <div class="branch-row">
+          <label>Branch</label>
+          <input type="text" id="branchInput" value="main" class="branch-input" />
+        </div>
+
+        <button class="btn-primary" id="analyzeBtn">
+          <span id="analyzeBtnText">Analyze Repos</span>
+        </button>
+      </div>
+
+      <!-- Indexed repos list (appears after indexing) -->
+      <div id="indexedSection" class="sidebar-section hidden">
+        <label class="section-label">INDEXED</label>
+        <div id="indexedList" class="indexed-list"></div>
+        <button class="btn-danger" id="clearBtn">✕ Clear Session</button>
+      </div>
+    </aside>
+
+    <!-- ── Main ──────────────────────────────────────────────── -->
+    <main class="main">
+
+      <!-- Empty state -->
+      <div id="emptyState" class="center-state">
+        <div class="empty-icon">🔍</div>
+        <h2>Analyse any GitHub repository</h2>
+        <p>Enter one or more repository URLs in the sidebar and click <strong>Analyze Repos</strong>.</p>
+      </div>
+
+      <!-- Loading / progress -->
+      <div id="loadingState" class="center-state hidden">
+        <div class="spinner"></div>
+        <h3 id="loadingTitle">Indexing repositories…</h3>
+        <div id="progressLog" class="progress-log"></div>
+      </div>
+
+      <!-- Content -->
+      <div id="contentArea" class="content-area hidden">
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab active" data-tab="overview">📊 Overview</button>
+          <button class="tab" data-tab="chat">💬 Chat</button>
+        </div>
+
+        <!-- Overview tab -->
+        <div id="tab-overview" class="tab-pane active">
+          <div id="repoCards" class="repo-cards"></div>
+        </div>
+
+        <!-- Chat tab -->
+        <div id="tab-chat" class="tab-pane hidden">
+          <div id="messages" class="messages"></div>
+          <div class="chat-bar">
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="Ask anything about the indexed repositories…"
+              autocomplete="off"
+            />
+            <button id="sendBtn">Send</button>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

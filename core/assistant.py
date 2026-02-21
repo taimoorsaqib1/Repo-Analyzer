@@ -6,8 +6,8 @@ to answer questions about your codebase.
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-from retriever import get_retriever
-from llm import get_llm
+from .retriever import get_retriever
+from .llm import get_llm
 
 
 SYSTEM_PROMPT = """\
@@ -35,6 +35,8 @@ def _format_context(docs: list[Document]) -> str:
     for i, doc in enumerate(docs, 1):
         source = doc.metadata.get("source", "unknown")
         language = doc.metadata.get("language", "")
+        repo = doc.metadata.get("repository", "")
+        repo_info = f" [{repo}]" if repo else ""
         chunk_info = ""
         if "chunk_index" in doc.metadata:
             chunk_info = (
@@ -43,7 +45,7 @@ def _format_context(docs: list[Document]) -> str:
             )
 
         parts.append(
-            f"--- File: {source}{chunk_info} [{language}] ---\n"
+            f"--- File: {source}{chunk_info}{repo_info} [{language}] ---\n"
             f"{doc.page_content}\n"
         )
 
@@ -51,10 +53,7 @@ def _format_context(docs: list[Document]) -> str:
 
 
 class CodingAssistant:
-    """
-    RAG-powered coding assistant that retrieves relevant code
-    and uses an LLM to answer questions.
-    """
+    """RAG-powered coding assistant."""
 
     def __init__(self):
         self.retriever = get_retriever()
@@ -62,25 +61,13 @@ class CodingAssistant:
         self.history: list[HumanMessage | AIMessage] = []
 
     def ask(self, question: str) -> tuple[str, list[Document]]:
-        """
-        Ask a question about the codebase.
-
-        Args:
-            question: The user's question.
-
-        Returns:
-            Tuple of (answer_text, source_documents).
-        """
-        # Retrieve relevant code chunks
+        """Ask a question about the codebase."""
         relevant_docs = self.retriever.invoke(question)
-
-        # Build the context
         context = _format_context(relevant_docs)
 
-        # Build messages
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
-            *self.history[-10:],  # Keep last 5 exchanges for context
+            *self.history[-10:],
             HumanMessage(
                 content=(
                     f"Here is the relevant code from the project:\n\n"
@@ -90,15 +77,45 @@ class CodingAssistant:
             ),
         ]
 
-        # Call LLM
         response = self.llm.invoke(messages)
         answer = response.content
 
-        # Update conversation history
         self.history.append(HumanMessage(content=question))
         self.history.append(AIMessage(content=answer))
 
         return answer, relevant_docs
+
+    def stream_ask(self, question: str):
+        """
+        Stream tokens for a question. Yields str tokens, then
+        finally yields a tuple (sources_list,) to signal completion.
+        """
+        relevant_docs = self.retriever.invoke(question)
+        context = _format_context(relevant_docs)
+
+        messages = [
+            SystemMessage(content=SYSTEM_PROMPT),
+            *self.history[-10:],
+            HumanMessage(
+                content=(
+                    f"Here is the relevant code from the project:\n\n"
+                    f"{context}\n\n"
+                    f"Question: {question}"
+                )
+            ),
+        ]
+
+        full_answer = ""
+        for chunk in self.llm.stream(messages):
+            token = chunk.content
+            full_answer += token
+            yield token
+
+        self.history.append(HumanMessage(content=question))
+        self.history.append(AIMessage(content=full_answer))
+
+        # Signal done — yield docs as final item
+        yield relevant_docs
 
     def clear_history(self):
         """Clear conversation history."""
@@ -110,7 +127,9 @@ class CodingAssistant:
         sources: list[str] = []
         for doc in docs:
             src = doc.metadata.get("source", "unknown")
-            if src not in seen:
-                seen.add(src)
-                sources.append(src)
+            repo = doc.metadata.get("repository", "")
+            label = f"{repo}/{src}" if repo else src
+            if label not in seen:
+                seen.add(label)
+                sources.append(label)
         return sources

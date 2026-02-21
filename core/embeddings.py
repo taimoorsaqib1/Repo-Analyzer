@@ -4,8 +4,7 @@ based on the configured provider (OpenAI or Ollama).
 """
 
 from langchain_core.embeddings import Embeddings
-
-import config
+from . import config
 
 
 def get_embeddings() -> Embeddings:
