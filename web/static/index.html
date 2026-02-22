@@ -3,94 +3,178 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Code Assistant</title>
+  <title>Repo Analyzer — AI Coding Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <!-- Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="app">
+<div class="app">
 
-    <!-- ── Sidebar ─────────────────────────────────────────── -->
-    <aside class="sidebar">
-      <div class="logo">
-        <span class="logo-icon">🧠</span>
-        <div>
-          <h1>Code Assistant</h1>
-          <p class="logo-sub">Multi-Repo RAG</p>
+  <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="logo">
+      <div class="logo-icon-wrap"><span class="logo-icon">⬡</span></div>
+      <div>
+        <h1>Repo Analyzer</h1>
+        <p class="logo-sub">AI Coding Assistant</p>
+      </div>
+    </div>
+
+    <!-- Workspaces -->
+    <div class="sidebar-section">
+      <div class="section-header">
+        <label class="section-label">WORKSPACES</label>
+        <button class="icon-btn" id="refreshWorkspacesBtn" title="Refresh">↻</button>
+      </div>
+      <div id="workspaceList" class="workspace-list">
+        <div class="ws-empty">No saved workspaces</div>
+      </div>
+      <button class="btn-save" id="saveWorkspaceBtn" disabled>
+        <span>💾</span> Save Current Session
+      </button>
+    </div>
+
+    <!-- Repo inputs -->
+    <div class="sidebar-section">
+      <label class="section-label">REPOSITORIES</label>
+      <div id="urlList" class="url-list"></div>
+      <button class="btn-ghost" id="addUrlBtn">＋ Add URL</button>
+      <div class="branch-row">
+        <label>Branch</label>
+        <input type="text" id="branchInput" value="main" class="branch-input" />
+      </div>
+      <button class="btn-primary" id="analyzeBtn">
+        <span id="analyzeBtnText">Analyze Repos</span>
+      </button>
+    </div>
+
+    <!-- Indexed repos -->
+    <div id="indexedSection" class="sidebar-section hidden">
+      <label class="section-label">INDEXED NOW</label>
+      <div id="indexedList" class="indexed-list"></div>
+      <button class="btn-danger" id="clearBtn">✕ Clear Session</button>
+    </div>
+
+  </aside>
+
+  <!-- ══ MAIN ══════════════════════════════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- Top bar -->
+    <div class="topbar">
+      <div id="topbarInfo" class="topbar-info"></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="newChatBtn" title="New Chat" style="display:none">✎ New Chat</button>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="emptyState" class="center-state">
+      <div class="empty-gfx">
+        <div class="empty-hex">⬡</div>
+        <div class="empty-dots">
+          <span></span><span></span><span></span>
         </div>
       </div>
+      <h2>Chat with any GitHub repository</h2>
+      <p>Paste one or more repo URLs in the sidebar and click <strong>Analyze Repos</strong>.<br/>Your session is saved locally — no re-indexing on restart.</p>
+      <div class="empty-features">
+        <div class="ef-item"><span>⚡</span> Hybrid BM25 + Vector Search</div>
+        <div class="ef-item"><span>🎯</span> Cross-encoder Re-ranking</div>
+        <div class="ef-item"><span>💾</span> Persistent Workspaces</div>
+        <div class="ef-item"><span>🗂</span> File Explorer + Code Viewer</div>
+      </div>
+    </div>
 
-      <div class="sidebar-section">
-        <label class="section-label">REPOSITORIES</label>
-        <div id="urlList" class="url-list"></div>
-        <button class="btn-ghost" id="addUrlBtn">＋ Add URL</button>
+    <!-- Loading / progress -->
+    <div id="loadingState" class="center-state hidden">
+      <div class="loader-ring"><div></div><div></div><div></div><div></div></div>
+      <h3 id="loadingTitle">Indexing repositories…</h3>
+      <div id="progressLog" class="progress-log"></div>
+    </div>
 
-        <div class="branch-row">
-          <label>Branch</label>
-          <input type="text" id="branchInput" value="main" class="branch-input" />
-        </div>
+    <!-- Content -->
+    <div id="contentArea" class="content-area hidden">
 
-        <button class="btn-primary" id="analyzeBtn">
-          <span id="analyzeBtnText">Analyze Repos</span>
-        </button>
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">📊 Overview</button>
+        <button class="tab" data-tab="explorer">🗂 Explorer</button>
+        <button class="tab" data-tab="chat">💬 Chat</button>
       </div>
 
-      <!-- Indexed repos list (appears after indexing) -->
-      <div id="indexedSection" class="sidebar-section hidden">
-        <label class="section-label">INDEXED</label>
-        <div id="indexedList" class="indexed-list"></div>
-        <button class="btn-danger" id="clearBtn">✕ Clear Session</button>
-      </div>
-    </aside>
-
-    <!-- ── Main ──────────────────────────────────────────────── -->
-    <main class="main">
-
-      <!-- Empty state -->
-      <div id="emptyState" class="center-state">
-        <div class="empty-icon">🔍</div>
-        <h2>Analyse any GitHub repository</h2>
-        <p>Enter one or more repository URLs in the sidebar and click <strong>Analyze Repos</strong>.</p>
+      <!-- Overview tab -->
+      <div id="tab-overview" class="tab-pane active">
+        <div id="repoCards" class="repo-cards"></div>
       </div>
 
-      <!-- Loading / progress -->
-      <div id="loadingState" class="center-state hidden">
-        <div class="spinner"></div>
-        <h3 id="loadingTitle">Indexing repositories…</h3>
-        <div id="progressLog" class="progress-log"></div>
-      </div>
-
-      <!-- Content -->
-      <div id="contentArea" class="content-area hidden">
-
-        <!-- Tabs -->
-        <div class="tabs">
-          <button class="tab active" data-tab="overview">📊 Overview</button>
-          <button class="tab" data-tab="chat">💬 Chat</button>
-        </div>
-
-        <!-- Overview tab -->
-        <div id="tab-overview" class="tab-pane active">
-          <div id="repoCards" class="repo-cards"></div>
-        </div>
-
-        <!-- Chat tab -->
-        <div id="tab-chat" class="tab-pane hidden">
-          <div id="messages" class="messages"></div>
-          <div class="chat-bar">
-            <input
-              type="text"
-              id="chatInput"
-              placeholder="Ask anything about the indexed repositories…"
-              autocomplete="off"
-            />
-            <button id="sendBtn">Send</button>
+      <!-- Explorer tab -->
+      <div id="tab-explorer" class="tab-pane hidden">
+        <div class="explorer-layout">
+          <div class="file-tree-panel">
+            <div class="tree-search-wrap">
+              <input type="text" id="treeSearch" class="tree-search" placeholder="Filter files…" />
+            </div>
+            <div id="fileTree" class="file-tree"></div>
+          </div>
+          <div class="file-preview-panel" id="filePreviewPanel">
+            <div class="preview-empty">
+              <span>📄</span>
+              <p>Click a file in the tree to preview it</p>
+            </div>
           </div>
         </div>
-
       </div>
-    </main>
+
+      <!-- Chat tab -->
+      <div id="tab-chat" class="tab-pane hidden">
+        <div id="messages" class="messages"></div>
+        <div class="chat-bar">
+          <textarea
+            id="chatInput"
+            class="chat-input"
+            placeholder="Ask anything about the indexed repositories… (Enter to send, Shift+Enter for newline)"
+            rows="1"
+            autocomplete="off"
+          ></textarea>
+          <button id="sendBtn" class="send-btn" title="Send (Enter)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ══ CODE VIEWER (slide-in panel) ═════════════════════════════════════ -->
+  <div class="code-viewer" id="codeViewer">
+    <div class="cv-header">
+      <div class="cv-path" id="cvPath">—</div>
+      <div class="cv-actions">
+        <button class="cv-btn" id="cvCopy" title="Copy code">⧉ Copy</button>
+        <button class="cv-btn" id="cvClose" title="Close">✕</button>
+      </div>
+    </div>
+    <div class="cv-body">
+      <pre id="cvPre"><code id="cvCode"></code></pre>
+    </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- ══ OVERLAY (dims main when code viewer is open) ═════════════════════ -->
+  <div class="overlay" id="overlay"></div>
+
+  <!-- ══ TOAST CONTAINER ══════════════════════════════════════════════════ -->
+  <div id="toasts" class="toasts"></div>
+
+</div>
+<script src="/static/app.js"></script>
 </body>
 </html>

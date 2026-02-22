@@ -1,13 +1,74 @@
 """
 Coding Assistant — RAG chain that combines retriever + LLM + prompt
 to answer questions about your codebase.
+
+Phase 1 enhancements:
+  • Hybrid retrieval (BM25 + MMR via RRF) — done in retriever.py
+  • Contextual chunk enrichment — done in chunker.py
+  • Cross-encoder re-ranking — applied here before building the prompt.
+    After the hybrid retriever returns its fused top-K candidates, a
+    lightweight CrossEncoder scores every (query, chunk) pair and keeps
+    only the best RERANKER_TOP_N.  This removes low-relevance chunks that
+    survived RRF and sharpens the context window sent to the LLM.
 """
+
+from __future__ import annotations
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from .retriever import get_retriever
 from .llm import get_llm
+
+# ── Re-ranker config ──────────────────────────────────────────────────────────
+# BAAI/bge-reranker-base is small (~280 MB), runs on CPU, and
+# significantly outperforms bi-encoder ranking on code Q&A benchmarks.
+_RERANKER_MODEL = "BAAI/bge-reranker-base"
+_RERANKER_TOP_N = 4          # docs kept after re-ranking
+_reranker = None             # lazy singleton
+
+
+def _get_reranker():
+    """Lazily load the CrossEncoder so start-up stays fast."""
+    global _reranker
+    if _reranker is None:
+        try:
+            from sentence_transformers import CrossEncoder  # type: ignore
+            _reranker = CrossEncoder(_RERANKER_MODEL)
+        except Exception:
+            # Graceful degradation: if sentence-transformers is missing
+            # or the model fails to load, skip re-ranking silently.
+            _reranker = False
+    return _reranker
+
+
+def _rerank(query: str, docs: list[Document]) -> list[Document]:
+    """
+    Score every (query, chunk) pair with a cross-encoder and return
+    the top _RERANKER_TOP_N documents sorted by descending relevance.
+
+    Falls back to the original ranked list when the re-ranker is
+    unavailable so the assistant still works without sentence-transformers.
+    """
+    if not docs:
+        return docs
+
+    reranker = _get_reranker()
+    if not reranker:
+        # Re-ranker unavailable — return as-is (hybrid retriever already
+        # applied RRF, so ordering is already meaningful).
+        return docs[:_RERANKER_TOP_N]
+
+    # Use original_content if present (clean code without context header)
+    texts = [
+        doc.metadata.get("original_content", doc.page_content)
+        for doc in docs
+    ]
+    pairs = [(query, text) for text in texts]
+    scores = reranker.predict(pairs)
+
+    scored = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
+    return [doc for _, doc in scored[:_RERANKER_TOP_N]]
 
 
 SYSTEM_PROMPT = """\
@@ -30,7 +91,11 @@ Guidelines:
 
 
 def _format_context(docs: list[Document]) -> str:
-    """Format retrieved documents into a readable context block."""
+    """
+    Format retrieved (and re-ranked) documents into a readable context block.
+    Uses metadata["original_content"] when available so the LLM sees clean
+    code without the embedding context header injected by the chunker.
+    """
     parts: list[str] = []
     for i, doc in enumerate(docs, 1):
         source = doc.metadata.get("source", "unknown")
@@ -44,9 +109,12 @@ def _format_context(docs: list[Document]) -> str:
                 f"/{doc.metadata['total_chunks']})"
             )
 
+        # Prefer the preserved original code over the enriched embedding text
+        content = doc.metadata.get("original_content", doc.page_content)
+
         parts.append(
             f"--- File: {source}{chunk_info}{repo_info} [{language}] ---\n"
-            f"{doc.page_content}\n"
+            f"{content}\n"
         )
 
     return "\n".join(parts)
@@ -55,14 +123,17 @@ def _format_context(docs: list[Document]) -> str:
 class CodingAssistant:
     """RAG-powered coding assistant."""
 
-    def __init__(self):
-        self.retriever = get_retriever()
+    def __init__(self, collection_name: str | None = None):
+        self.retriever = get_retriever(collection_name)
         self.llm = get_llm()
         self.history: list[HumanMessage | AIMessage] = []
 
     def ask(self, question: str) -> tuple[str, list[Document]]:
         """Ask a question about the codebase."""
+        # 1. Hybrid retrieval (BM25 + MMR via RRF)
         relevant_docs = self.retriever.invoke(question)
+        # 2. Cross-encoder re-ranking — keeps only the most relevant chunks
+        relevant_docs = _rerank(question, relevant_docs)
         context = _format_context(relevant_docs)
 
         messages = [
@@ -90,7 +161,10 @@ class CodingAssistant:
         Stream tokens for a question. Yields str tokens, then
         finally yields a tuple (sources_list,) to signal completion.
         """
+        # 1. Hybrid retrieval (BM25 + MMR via RRF)
         relevant_docs = self.retriever.invoke(question)
+        # 2. Cross-encoder re-ranking — keeps only the most relevant chunks
+        relevant_docs = _rerank(question, relevant_docs)
         context = _format_context(relevant_docs)
 
         messages = [

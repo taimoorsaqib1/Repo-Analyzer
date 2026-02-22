@@ -4,7 +4,12 @@
 # ChromaDB vector store data
 chroma_db/
 
-# Cloned repos
+# Runtime data directory (cloned repos, workspace DB, chroma)
+data/repo_clone/
+data/workspaces.db
+data/chroma_db/
+
+# Cloned repos (root-level, legacy)
 repo_clone/
 
 # Python
