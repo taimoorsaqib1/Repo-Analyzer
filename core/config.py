@@ -12,6 +12,17 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 # ── Provider ──────────────────────────────────────────────
 PROVIDER: str = os.getenv("PROVIDER", "ollama").lower()
 
+# ── Google Gemini ─────────────────────────────────────────
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+GEMINI_LLM_MODEL: str = os.getenv("GEMINI_LLM_MODEL", "gemini-2.0-flash")
+GEMINI_EMBED_MODEL: str = os.getenv("GEMINI_EMBED_MODEL", "models/gemini-embedding-001")
+
+# ── Local Embeddings (sentence-transformers, no quota) ────
+# Used by default when PROVIDER=gemini to avoid API rate limits.
+# BAAI/bge-small-en-v1.5 is ~130 MB, fast on CPU, and high quality.
+EMBED_PROVIDER: str = os.getenv("EMBED_PROVIDER", "local")
+LOCAL_EMBED_MODEL: str = os.getenv("LOCAL_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+
 # ── OpenAI ────────────────────────────────────────────────
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 OPENAI_EMBED_MODEL: str = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")

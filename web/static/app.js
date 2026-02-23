@@ -7,6 +7,20 @@
 /* -- Globals ---------------------------------------------------------------- */
 const state = { streaming: false };
 
+/* == MODEL BADGE ============================================================ */
+async function loadModelInfo() {
+  try {
+    const res  = await fetch('/api/config');
+    const data = await res.json();
+    const providerLabels = { gemini: 'Gemini', openai: 'OpenAI', ollama: 'Ollama' };
+    $('modelProvider').textContent = providerLabels[data.provider] || data.provider;
+    $('modelName').textContent     = data.llm_model;
+  } catch (e) {
+    $('modelProvider').textContent = 'Model';
+    $('modelName').textContent     = 'unavailable';
+  }
+}
+
 /* -- DOM helpers ------------------------------------------------------------ */
 const $  = id  => document.getElementById(id);
 const el = (tag, cls, html) => {
@@ -640,4 +654,5 @@ $('clearBtn').addEventListener('click', async function() {
 
 /* == BOOT =================================================================== */
 marked.setOptions({ breaks: true, gfm: true, highlight: null });
+loadModelInfo();
 loadWorkspaceList();

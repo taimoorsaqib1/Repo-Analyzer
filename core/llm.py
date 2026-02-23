@@ -11,10 +11,20 @@ def get_llm() -> BaseChatModel:
     """
     Return a chat LLM based on config.PROVIDER.
 
+    - "gemini" → ChatGoogleGenerativeAI (requires GEMINI_API_KEY)
     - "openai" → ChatOpenAI (requires OPENAI_API_KEY)
     - "ollama" → ChatOllama (requires Ollama running locally)
     """
-    if config.PROVIDER == "openai":
+    if config.PROVIDER == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        return ChatGoogleGenerativeAI(
+            model=config.GEMINI_LLM_MODEL,
+            google_api_key=config.GEMINI_API_KEY,
+            temperature=0.1,
+        )
+
+    elif config.PROVIDER == "openai":
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(
@@ -34,5 +44,5 @@ def get_llm() -> BaseChatModel:
 
     else:
         raise ValueError(
-            f"Unknown provider '{config.PROVIDER}'. Use 'openai' or 'ollama'."
+            f"Unknown provider '{config.PROVIDER}'. Use 'gemini', 'openai', or 'ollama'."
         )

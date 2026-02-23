@@ -66,6 +66,27 @@ class LoadWorkspaceRequest(BaseModel):
     name: str
 
 
+# ── Config Info ──────────────────────────────────────────────────────────────
+@app.get("/api/config")
+def get_config():
+    """Return the active provider and model names for display in the UI."""
+    provider = config.PROVIDER
+    if provider == "gemini":
+        llm_model   = config.GEMINI_LLM_MODEL
+        embed_model = f"local:{config.LOCAL_EMBED_MODEL}" if config.EMBED_PROVIDER == "local" else config.GEMINI_EMBED_MODEL
+    elif provider == "openai":
+        llm_model   = config.OPENAI_LLM_MODEL
+        embed_model = config.OPENAI_EMBED_MODEL
+    else:  # ollama
+        llm_model   = config.OLLAMA_LLM_MODEL
+        embed_model = config.OLLAMA_EMBED_MODEL
+    return {
+        "provider":    provider,
+        "llm_model":   llm_model,
+        "embed_model": embed_model,
+    }
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/")
 def index():
@@ -184,6 +205,10 @@ def _generate_summary(repo_name: str, assistant: CodingAssistant) -> dict:
     )
     try:
         answer, _ = assistant.ask(prompt)
+        # Remove this JSON exchange from chat history so it never
+        # contaminates the user's conversation and causes JSON-mode replies.
+        if len(assistant.history) >= 2:
+            assistant.history = assistant.history[:-2]
         answer = answer.strip()
         if "```" in answer:
             for part in answer.split("```"):
